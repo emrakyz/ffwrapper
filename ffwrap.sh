@@ -460,7 +460,7 @@ encav1() {
 		- | SvtAv1EncApp \
 			-i "stdin" \
 			${params[@]} \
-			-b "av1_${src}.ivf"
+			-b "av1_${src%.*}.ivf"
 }
 
 max_cores() {
