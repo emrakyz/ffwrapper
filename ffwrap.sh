@@ -22,6 +22,7 @@ ff_2=(
 	-err_detect "ignore_err"
 	-ignore_unknown
 	-reset_timestamps "1"
+ 	-start_at_zero
 )
 
 fd_code() {
