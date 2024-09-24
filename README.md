@@ -9,3 +9,6 @@
 - Do extensive metric tests (SSIMU2, Weighted XSPNR, VMAF, SSIM/PSNR).
 - Extract DOVI RPUs and HDR10+ JSON. Use them automatically.
 - Some other conveniences...
+
+https://github.com/user-attachments/assets/431ac63d-3b00-4997-ac4c-f6ac4bac6184
+
