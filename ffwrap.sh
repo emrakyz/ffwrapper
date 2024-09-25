@@ -305,7 +305,7 @@ populate() {
 
 	fr="$(ffprobe -v error -select_streams v:0 -show_entries stream=avg_frame_rate,r_frame_rate -of csv=p=0 "${src}")"
 	mfr="$(mediainfo --Inform="Video;%FrameRate_Maximum%" "${src}")"
-	[[ ${${(s:,:)fr}[1]} != ${${(s:,:)fr}[2]} ]] && (( mfr >= 60 )) && ff_2+=( -r 60 )
+	[[ ${${(s:,:)fr}[1]} != ${${(s:,:)fr}[2]} ]] && (( mfr >= 60 )) && ff_2+=( -r 60 ) || true
 }
 
 map_color() { print -r -- "${color_map[$1]:-$1}"; }
