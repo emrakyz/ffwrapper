@@ -18,11 +18,12 @@ ff_1=(
 
 ff_2=(
 	-fflags "+genpts+igndts+discardcorrupt+bitexact"
+	-bitexact
 	-avoid_negative_ts "make_zero"
 	-err_detect "ignore_err"
 	-ignore_unknown
 	-reset_timestamps "1"
- 	-start_at_zero
+	-start_at_zero
 )
 
 fd_code() {
@@ -99,36 +100,40 @@ extract() {
 combine() {
         video_src="$(p *.{mkv,ivf} | fz "VIDEO SOURCE" "Select the video source")"
 
-        audio_srcs=($(p *.{mka,opus} | fz "AUDIO SOURCES" "Select the audio source(s)"))
+        audio_srcs=($(p "NONE" *.{mka,opus} | fz "AUDIO SOURCES" "Select the audio source(s)"))
 
-	subtitle_srcs=($(p *.srt | fz "SUBTITLE SOURCES" "Select the subtitle source(s)"))
+	subtitle_srcs=($(p "NONE" *.srt | fz "SUBTITLE SOURCES" "Select the subtitle source(s)"))
 
         map_opts=(-map "0:v")
         meta_opts=()
         input_opts=(-i "${video_src}")
 
-	for ((i = 1; i <= ${#audio_srcs[@]}; i++)); do
-		input_opts+=(-i "${audio_srcs[i]}")
-		map_opts+=(-map "${i}")
-		lang_code="${audio_srcs[i]%.*}"
-		lang_code="${lang_code##*_}"
-		lang_name="$(fd_code "${lang_code}")"
-		meta_opts+=(-metadata:s:a:"$((i-1))" "language=${lang_code}" \
-			-metadata:s:a:"$((i-1))" "title=${lang_name}")
-	done
+	[[ "${audio_srcs}" != "NONE" ]] && {
+		for ((i = 1; i <= ${#audio_srcs[@]}; i++)); do
+			input_opts+=(-i "${audio_srcs[i]}")
+			map_opts+=(-map "${i}")
+			lang_code="${audio_srcs[i]%.*}"
+			lang_code="${lang_code##*_}"
+			lang_name="$(fd_code "${lang_code}")"
+			meta_opts+=(-metadata:s:a:"$((i-1))" "language=${lang_code}" \
+				-metadata:s:a:"$((i-1))" "title=${lang_name}")
+		done
+	}
 
-	for ((i = 1; i <= ${#subtitle_srcs[@]}; i++)); do
-		input_opts+=(-sub_charenc "UTF-8" -i "${subtitle_srcs[i]}")
-		map_opts+=(-map "$((i + 1))")
-		lang_code="${subtitle_srcs[i]%.*}"
-		lang_code="${lang_code##*.}"
-		lang_name="$(fd_code "${lang_code}")"
-		meta_opts+=(-metadata:s:s:"$((i-1))" "language=${lang_code}" \
-			-metadata:s:s:"$((i-1))" "title=${lang_name}")
-	done
+	[[ "${subtitle_srcs}" != "NONE" ]] && {
+		for ((i = 1; i <= ${#subtitle_srcs[@]}; i++)); do
+			input_opts+=(-sub_charenc "UTF-8" -i "${subtitle_srcs[i]}")
+			map_opts+=(-map "$((i + 1))")
+			lang_code="${subtitle_srcs[i]%.*}"
+			lang_code="${lang_code##*.}"
+			lang_name="$(fd_code "${lang_code}")"
+			meta_opts+=(-metadata:s:s:"$((i-1))" "language=${lang_code}" \
+				-metadata:s:s:"$((i-1))" "title=${lang_name}")
+		done
+	}
 
 	p "Enter the Title: "
-	read -r title
+	read -r title || true
 
 	input_cnt="$((1 + ${#audio_srcs[@]} + ${#subtitle_srcs[@]}))"
 	[[ -s "FFMETADATAFILE" ]] && {
@@ -303,9 +308,13 @@ populate() {
 		--sharpness "1"
 	)
 
+	svtparams="film-grain=${FG}:tune=3:qp-scale-compress-strength=3:sharpness=1:progress=3"
+
 	fr="$(ffprobe -v error -select_streams v:0 -show_entries stream=avg_frame_rate,r_frame_rate -of csv=p=0 "${src}")"
 	mfr="$(mediainfo --Inform="Video;%FrameRate_Maximum%" "${src}")"
-	[[ ${${(s:,:)fr}[1]} != ${${(s:,:)fr}[2]} ]] && (( mfr >= 60 )) && ff_2+=( -r 60 ) || true
+	[[ ${${(s:,:)fr}[1]} != ${${(s:,:)fr}[2]} ]] && [[ "${mfr}" ]] && {
+		ff_2+=( -fps_mode passthrough -copyts )
+	} || true
 }
 
 map_color() { print -r -- "${color_map[$1]:-$1}"; }
@@ -342,34 +351,37 @@ colors() {
 		-of default=noprint_wrappers=1 "${src}")" || true
 
 	case "${color_range}" in
-		"tv"|"limited") params+=( --color-range 0 ) ;;
-		"full"|"pc") params+=( --color-range 1 ) ;;
+		"tv"|"limited") params+=( --color-range 0 ) svtparams+=":color-range=0" ;;
+		"full"|"pc") params+=( --color-range 1 ) svtparams+=":color-range=1" ;;
 		*) true ;;
 	esac
 
 	[[ "${color_space}" && "${color_space}" != "unknown" ]] && {
 		map_matrix="$(map_color "${color_space}")"
 		params+=( --matrix-coefficients "${map_matrix}" )
+		svtparams+=":matrix-coefficients=${map_matrix}"
 	}
 
 	[[ "${color_transfer}" && "${color_transfer}" != "unknown" ]] && {
 		map_trans="$(map_color "${color_transfer}")"
 		params+=( --transfer-characteristics "${map_trans}" )
+		svtparams+=":transfer-characteristics=${map_trans}"
 	}
 
 	[[ "${color_primaries}" && "${color_primaries}" != "unknown" ]] && {
 		map_prime="$(map_color "${color_primaries}")"
 		params+=( --color-primaries "${map_prime}" )
+		svtparams+=":color-primaries=${map_prime}"
 	}
 
 	case "${chroma_location}" in
-		"topleft") params+=( --chroma-sample-position 2 ) ;;
-		"left") params+=( --chroma-sample-position 1 ) ;;
-		*) params+=( --chroma-sample-position 0 ) ;;
+		"topleft") params+=( --chroma-sample-position 2 ) svtparams+=":chroma-sample-position=2" ;;
+		"left") params+=( --chroma-sample-position 1 ) svtparams+=":chroma-sample-position=1" ;;
+		*) params+=( --chroma-sample-position 0 ) svtparams+=":chroma-sample-position=0" ;;
 	esac
 
 	(($hdr_opts[(Ie)$map_matrix] || $hdr_opts[(Ie)$map_trans] || $hdr_opts[(Ie)$map_prime])) && {
-		params+=( --enable-hdr 1 )
+		params+=( --enable-hdr 1 ) svtparams+=":enable-hdr=1"
 		info="$(mediainfo "${src}")"
 		dcp="$(p "${info}" | sed -nE '/Mastering display color/{s/.*: *//p}' || true)"
 		max_l="$(p "${info}" | sed -nE '/Mastering display luminance/{s/.*max: ([0-9.]+) cd.*/\1/p}' || true)"
@@ -421,16 +433,17 @@ colors() {
 			md=G(${g_c},${g_y})B(${b_c},${b_y})R(${r_c},${r_y})WP(${w_x},${w_y})L(${max_l},${min_l})
 			cl=${max_cl},${max_fa}
 			params+=( --mastering-display ${md} --content-light "${cl}" )
+			svtparams+=":mastering-display=${md}:content-light=${cl}"
 		}
 
 		ffprobe -v quiet -hide_banner -show_streams -show_format -show_entries side_data \
 			-count_packets -count_frames -read_intervals "%+#1" \
 			"tmp_output.hevc" | grep -Eiq 'dovi|dolby' && {
-				[[ "rpu.bin" ]] && params+=( --dolby-vision-rpu *.rpu )
+				[[ "rpu.bin" ]] && params+=( --dolby-vision-rpu *.bin ) svtparams+=":dolby-vision-rpu=rpu.bin"
 		} || true
 		
 		mediainfo "${src}" | grep -iq 'SMPTE ST 2094' && {
-			[[ -s "hdr10plus.json" ]] && params+=( --hdr10plus-json *.json )
+			[[ -s "hdr10plus.json" ]] && params+=( --hdr10plus-json *.json ) svtparams+=":hdr10plus-json=hdr10plus.json"
 		} || true
 }
 
@@ -441,30 +454,56 @@ encav1() {
 
 	colors
 
+	svtparams+=":keyint=10s:pin=1:lp=$(nproc)"
+
 	params+=(
 		--keyint "10s"
 		--progress "3"
-		--lp "0"
+		--lp "$(nproc)"
 		--pin "1"
 	)
 
-	echo "${params[@]}"
-	echo ""
+	pref="$(p "Pipe into SvtAv1EncApp" "Use libsvtav1 within ffmpeg" | fz "PREFERENCE" "Select your preference")"
 
-	${ff_1[@]} \
-		-i "${src}" \
-		-pix_fmt "yuv420p10le" \
-		-an -dn -sn \
-		-metadata title="" \
-		-map_metadata -1 \
-		-map_chapters -1 \
-		-f "yuv4mpegpipe" \
-		-strict -1 \
-		${ff_2[@]} \
-		- | SvtAv1EncApp \
-			-i "stdin" \
-			${params[@]} \
-			-b "av1_${src%.*}.ivf"
+	case "${pref}" in
+		"Pipe into SvtAv1EncApp")
+			echo "${params[@]}"
+			echo ""
+
+			${ff_1[@]} \
+				-i "${src}" \
+				-pix_fmt "yuv420p10le" \
+				-an -dn -sn \
+				-metadata title="" \
+				-map_metadata -1 \
+				-map_chapters -1 \
+				-f "yuv4mpegpipe" \
+				-strict -1 \
+				${ff_2[@]} \
+				- | SvtAv1EncApp \
+					-i "stdin" \
+					${params[@]} \
+					-b "av1_${src%.*}.ivf"
+		;;
+
+		"Use libsvtav1 within ffmpeg")
+			echo "${ff_1[@]} ${ff_2[@]}"
+			echo ""
+		
+			${ff_1[@]} \
+				-i "${src}" \
+				-an -dn -sn \
+				-metadata title="" \
+				-map_metadata -1 \
+				-map_chapters -1 \
+				${ff_2[@]} \
+				-c:v "libsvtav1" \
+				-crf "${crf}" \
+				-preset "${preset}" \
+				-svtav1-params "${svtparams}" \
+				"av1_${src%.*}.mkv"
+		;;
+	esac
 }
 
 max_cores() {
